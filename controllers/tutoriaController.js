@@ -4,6 +4,7 @@ import { InscripcionModel } from "../models/Inscripcion.js";
 import { EstudianteModel } from "../models/Estudiante.js";
 import { TutorModel } from "../models/Tutor.js";
 import { UserModel } from "../models/User.js";
+import { sequelize } from "../Db/conexion.js";
 
 /**
  * POST /api/tutorias
@@ -116,6 +117,182 @@ export const getAll = async (req, res) => {
  * PUT /api/tutorias/:id
  * Actualizar tutoría
  */
+export const update = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const rol = req.user?.rol;
+    const userId = req.user?.id;
+
+    if (!rol || !userId) {
+      await t.rollback();
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const tutoria = await TutoriaModel.findByPk(id, { transaction: t });
+    if (!tutoria) {
+      await t.rollback();
+      return res.status(404).json({ message: "Tutoría no encontrada" });
+    }
+
+    // ✅ Si es tutor, solo puede editar sus tutorías
+    if (rol === "tutor") {
+      const tutor = await TutorModel.findOne({ where: { userId }, transaction: t });
+      if (!tutor) {
+        await t.rollback();
+        return res.status(403).json({ message: "Solo tutores pueden actualizar tutorías" });
+      }
+      if (tutoria.tutorId !== tutor.id) {
+        await t.rollback();
+        return res.status(403).json({ message: "No puedes editar tutorías de otro tutor" });
+      }
+    }
+
+    // 🚫 Bloquear cambios peligrosos aunque vengan en el body
+    if (req.body?.tutorId !== undefined) {
+      await t.rollback();
+      return res.status(400).json({ message: "No se permite cambiar tutorId" });
+    }
+    if (req.body?.id !== undefined) {
+      await t.rollback();
+      return res.status(400).json({ message: "No se permite cambiar id" });
+    }
+
+    const estadoActual = tutoria.estado;
+
+    // ✅ Restricciones por estado actual
+    // - en_curso: solo descripcion y estado
+    // - completada: solo descripcion
+    const allowOnlyDescripcion =
+      estadoActual === "completada";
+
+    const allowOnlyDescripcionYEstado =
+      estadoActual === "en_curso";
+
+    if (allowOnlyDescripcion) {
+      const keys = Object.keys(req.body || {});
+      const allowed = ["descripcion"];
+      const invalid = keys.filter((k) => !allowed.includes(k));
+      if (invalid.length > 0) {
+        await t.rollback();
+        return res.status(400).json({
+          message: `Tutoría completada: solo puedes editar 'descripcion'. Campos no permitidos: ${invalid.join(", ")}`
+        });
+      }
+    }
+
+    if (allowOnlyDescripcionYEstado) {
+      const keys = Object.keys(req.body || {});
+      const allowed = ["descripcion", "estado"];
+      const invalid = keys.filter((k) => !allowed.includes(k));
+      if (invalid.length > 0) {
+        await t.rollback();
+        return res.status(400).json({
+          message: `Tutoría en curso: solo puedes editar 'descripcion' y 'estado'. Campos no permitidos: ${invalid.join(", ")}`
+        });
+      }
+    }
+
+    // Campos permitidos
+    const {
+      fecha,
+      materia,
+      tema,
+      descripcion,
+      duracion,
+      cupoMaximo,
+      modalidad,
+      ubicacion,
+      estado,
+    } = req.body;
+
+    // Validar y aplicar
+    if (descripcion !== undefined) tutoria.descripcion = descripcion;
+
+    if (!allowOnlyDescripcion && !allowOnlyDescripcionYEstado) {
+      if (fecha !== undefined) {
+        const fechaDate = new Date(fecha);
+        if (Number.isNaN(fechaDate.getTime())) {
+          await t.rollback();
+          return res.status(400).json({ message: "Fecha inválida" });
+        }
+        tutoria.fecha = fechaDate;
+      }
+
+      if (materia !== undefined) tutoria.materia = materia;
+      if (tema !== undefined) tutoria.tema = tema;
+
+      if (duracion !== undefined) {
+        const d = Number(duracion);
+        if (!Number.isInteger(d) || d <= 0) {
+          await t.rollback();
+          return res.status(400).json({ message: "Duración inválida" });
+        }
+        tutoria.duracion = d;
+      }
+
+      if (modalidad !== undefined) {
+        const allowed = ["presencial", "virtual", "hibrida"];
+        if (!allowed.includes(modalidad)) {
+          await t.rollback();
+          return res.status(400).json({ message: "Modalidad inválida" });
+        }
+        tutoria.modalidad = modalidad;
+      }
+
+      if (ubicacion !== undefined) tutoria.ubicacion = ubicacion;
+
+      if (cupoMaximo !== undefined) {
+        const c = Number(cupoMaximo);
+        if (!Number.isInteger(c) || c <= 0) {
+          await t.rollback();
+          return res.status(400).json({ message: "cupoMaximo inválido" });
+        }
+
+        // ✅ No bajar cupo por debajo de inscritos
+        const inscritos = await InscripcionModel.count({
+          where: { tutoriaId: tutoria.id },
+          transaction: t,
+        });
+
+        if (c < inscritos) {
+          await t.rollback();
+          return res.status(400).json({
+            message: `No puedes bajar el cupo a ${c} porque ya hay ${inscritos} inscritos`
+          });
+        }
+
+        tutoria.cupoMaximo = c;
+      }
+    }
+
+    // Estado: permitido si NO está completada.
+    // - programada: puede cambiar
+    // - en_curso: puede cambiar (por regla allowOnlyDescripcionYEstado)
+    // - completada: NO (solo descripcion)
+    if (estado !== undefined) {
+      if (estadoActual === "completada") {
+        await t.rollback();
+        return res.status(400).json({ message: "Tutoría completada: no puedes cambiar el estado" });
+      }
+      const allowed = ["programada", "en_curso", "completada", "cancelada"];
+      if (!allowed.includes(estado)) {
+        await t.rollback();
+        return res.status(400).json({ message: "Estado inválido" });
+      }
+      tutoria.estado = estado;
+    }
+
+    await tutoria.save({ transaction: t });
+    await t.commit();
+
+    return res.json({ message: "Tutoría actualizada", tutoria });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error en update tutoria:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+};
 
 
 /**
