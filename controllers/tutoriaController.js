@@ -73,36 +73,60 @@ export const getAll = async (req, res) => {
       return res.status(401).json({ message: "Unauthorized" });
     }
 
-    // Admin ve todas
+    // ✅ filtros vienen del frontend por query params
+    // /api/tutorias?materia=...&estado=...&q=...
+    const { materia, estado, q } = req.query;
+
+    const where = {};
+
+    if (materia && materia !== "Todos" && materia !== "todas" && materia !== "todas las materias") {
+      where.materia = materia;
+    }
+
+    if (estado && estado !== "Todos" && estado !== "todas" && estado !== "todos") {
+      where.estado = estado;
+    }
+
+    if (q && String(q).trim().length > 0) {
+      where[Op.or] = [
+        { tema: { [Op.like]: `%${q}%` } },
+        { materia: { [Op.like]: `%${q}%` } },
+      ];
+    }
+
+    // Admin ve todas (con filtros)
     if (rol === "admin") {
       const tutorias = await TutoriaModel.findAll({
+        where,
         order: [["fecha", "DESC"]],
       });
       return res.json({ tutorias });
     }
 
-    // Tutor ve solo las suyas
+    // Tutor ve solo las suyas (con filtros)
     if (rol === "tutor") {
       const tutor = await TutorModel.findOne({ where: { userId } });
       if (!tutor) {
         return res.status(403).json({ message: "Solo tutores pueden ver sus tutorías" });
       }
 
+      where.tutorId = tutor.id;
+
       const tutorias = await TutoriaModel.findAll({
-        where: { tutorId: tutor.id },
+        where,
         order: [["fecha", "DESC"]],
       });
 
       return res.json({ tutorias });
     }
 
-    // Estudiante no
     return res.status(403).json({ message: "Forbidden" });
   } catch (err) {
     console.error("❌ Error en getAll tutorias:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 };
+
 
 
 /**
