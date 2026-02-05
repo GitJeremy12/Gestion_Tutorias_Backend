@@ -2,11 +2,6 @@ import { Router } from "express";
 import {
   create,
   getAll,
-  getById,
-  update,
-  remove,
-  getByTutor,
-  getDisponibles,
 } from "../controllers/tutoriaController.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import { verifyToken } from "../middlewares/auth.middleware.js";
