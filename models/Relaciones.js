@@ -2,24 +2,57 @@ import { UserModel } from "./User.js";
 import { EstudianteModel } from "./Estudiante.js";
 import { TutorModel } from "./Tutor.js";
 import { TutoriaModel } from "./Tutoria.js";
+import { InscripcionModel } from "./Inscripcion.js";
 import { AgendamientoModel } from "./Agendamiento.js";
 
 export const definirRelaciones = () => {
-  // User <-> Estudiante (1-1)
   EstudianteModel.belongsTo(UserModel, { foreignKey: "userId" });
   UserModel.hasOne(EstudianteModel, { foreignKey: "userId" });
 
-  // User <-> Tutor (1-1)
   TutorModel.belongsTo(UserModel, { foreignKey: "userId" });
   UserModel.hasOne(TutorModel, { foreignKey: "userId" });
 
-  // Estudiante/Tutor <-> Tutoria (1-N)
-  EstudianteModel.hasMany(TutoriaModel, { foreignKey: "estudianteId" });
-  TutorModel.hasMany(TutoriaModel, { foreignKey: "tutorId" });
-  TutoriaModel.belongsTo(EstudianteModel, { foreignKey: "estudianteId" });
-  TutoriaModel.belongsTo(TutorModel, { foreignKey: "tutorId" });
+  TutorModel.hasMany(TutoriaModel, { 
+    foreignKey: "tutorId",
+    as: "tutorias" 
+  });
+  TutoriaModel.belongsTo(TutorModel, { 
+    foreignKey: "tutorId",
+    as: "tutor" 
+  });
 
-  // Estudiante/Tutor <-> Agendamiento (1-N)
+  EstudianteModel.belongsToMany(TutoriaModel, {
+    through: InscripcionModel,
+    foreignKey: "estudianteId",
+    otherKey: "tutoriaId",
+    as: "tutoriasInscritas",
+  });
+
+  TutoriaModel.belongsToMany(EstudianteModel, {
+    through: InscripcionModel,
+    foreignKey: "tutoriaId",
+    otherKey: "estudianteId",
+    as: "estudiantesInscritos",
+  });
+
+  InscripcionModel.belongsTo(TutoriaModel, { 
+    foreignKey: "tutoriaId",
+    as: "tutoria" 
+  });
+  InscripcionModel.belongsTo(EstudianteModel, { 
+    foreignKey: "estudianteId",
+    as: "estudiante" 
+  });
+
+  TutoriaModel.hasMany(InscripcionModel, { 
+    foreignKey: "tutoriaId",
+    as: "inscripciones" 
+  });
+  EstudianteModel.hasMany(InscripcionModel, { 
+    foreignKey: "estudianteId",
+    as: "inscripciones" 
+  });
+
   EstudianteModel.hasMany(AgendamientoModel, { foreignKey: "estudianteId" });
   TutorModel.hasMany(AgendamientoModel, { foreignKey: "tutorId" });
   AgendamientoModel.belongsTo(EstudianteModel, { foreignKey: "estudianteId" });

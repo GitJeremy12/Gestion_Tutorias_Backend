@@ -9,16 +9,6 @@ export const TutoriaModel = sequelize.define(
       primaryKey: true,
       autoIncrement: true,
     },
-    estudianteId: {
-      type: DataTypes.INTEGER,
-      allowNull: false,
-      references: {
-        model: "estudiantes",
-        key: "id",
-      },
-      onDelete: "CASCADE",
-      onUpdate: "CASCADE",
-    },
     tutorId: {
       type: DataTypes.INTEGER,
       allowNull: false,
@@ -41,7 +31,7 @@ export const TutoriaModel = sequelize.define(
       type: DataTypes.TEXT,
       allowNull: false,
     },
-    observaciones: {
+    descripcion: {
       type: DataTypes.TEXT,
       allowNull: true,
     },
@@ -50,10 +40,26 @@ export const TutoriaModel = sequelize.define(
       allowNull: false,
       comment: "Duración en minutos",
     },
-    estado: {
-      type: DataTypes.ENUM("completada", "cancelada"),
+    cupoMaximo: {
+      type: DataTypes.INTEGER,
       allowNull: false,
-      defaultValue: "completada",
+      defaultValue: 10,
+      comment: "Número máximo de estudiantes",
+    },
+    modalidad: {
+      type: DataTypes.ENUM("presencial", "virtual", "hibrida"),
+      allowNull: false,
+      defaultValue: "presencial",
+    },
+    ubicacion: {
+      type: DataTypes.STRING(200),
+      allowNull: true,
+      comment: "Salón o enlace de videoconferencia",
+    },
+    estado: {
+      type: DataTypes.ENUM("programada", "en_curso", "completada", "cancelada"),
+      allowNull: false,
+      defaultValue: "programada",
     },
   },
   {
