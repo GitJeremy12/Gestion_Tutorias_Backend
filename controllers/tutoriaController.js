@@ -1,25 +1,31 @@
 import { Op } from "sequelize";
 import { TutoriaModel } from "../models/Tutoria.js";
+import { InscripcionModel } from "../models/Inscripcion.js";
+import { EstudianteModel } from "../models/Estudiante.js";
+import { TutorModel } from "../models/Tutor.js";
+import { UserModel } from "../models/User.js";
 
 /**
  * POST /api/tutorias
- * Crear nueva tutoría
+ * Crear nueva tutoría (sesión grupal)
  */
 export const create = async (req, res) => {
   try {
     const {
-      estudianteId,
       tutorId,
       fecha,
       materia,
       tema,
-      observaciones,
+      descripcion,
       duracion,
+      cupoMaximo,
+      modalidad,
+      ubicacion,
       estado,
     } = req.body;
 
-    // Validaciones mínimas
-    if (!estudianteId || !tutorId || !fecha || !materia || !tema || !duracion) {
+    // Validaciones
+    if (!tutorId || !fecha || !materia || !tema || !duracion) {
       return res.status(400).json({ message: "Datos incompletos" });
     }
 
@@ -28,15 +34,23 @@ export const create = async (req, res) => {
       return res.status(400).json({ message: "Fecha inválida" });
     }
 
+    // Verificar que el tutor existe
+    const tutor = await TutorModel.findByPk(tutorId);
+    if (!tutor) {
+      return res.status(404).json({ message: "Tutor no encontrado" });
+    }
+
     const tutoria = await TutoriaModel.create({
-      estudianteId,
       tutorId,
       fecha: fechaDate,
       materia,
       tema,
-      observaciones: observaciones ?? null,
+      descripcion: descripcion ?? null,
       duracion,
-      estado: estado ?? "completada",
+      cupoMaximo: cupoMaximo ?? 10,
+      modalidad: modalidad ?? "presencial",
+      ubicacion: ubicacion ?? null,
+      estado: estado ?? "programada",
     });
 
     return res.status(201).json({ message: "Tutoría creada", tutoria });
@@ -48,30 +62,22 @@ export const create = async (req, res) => {
 
 /**
  * GET /api/tutorias
- * Listar todas (con filtros opcionales)
- * Filtros por query params (opcionales):
- * - estudianteId
- * - tutorId
- * - estado
- * - materia (contiene)
- * - desde (fecha)
- * - hasta (fecha)
+ * Listar todas con información de inscritos
  */
 export const getAll = async (req, res) => {
   try {
-    const { estudianteId, tutorId, estado, materia, desde, hasta } = req.query;
+    const { tutorId, estado, materia, desde, hasta, modalidad } = req.query;
 
     const where = {};
 
-    if (estudianteId) where.estudianteId = estudianteId;
     if (tutorId) where.tutorId = tutorId;
     if (estado) where.estado = estado;
+    if (modalidad) where.modalidad = modalidad;
 
     if (materia) {
       where.materia = { [Op.like]: `%${materia}%` };
     }
 
-    // rango de fechas opcional
     if (desde || hasta) {
       where.fecha = {};
       if (desde) where.fecha[Op.gte] = new Date(desde);
@@ -80,10 +86,45 @@ export const getAll = async (req, res) => {
 
     const tutorias = await TutoriaModel.findAll({
       where,
+      include: [
+        {
+          model: TutorModel,
+          as: "tutor",
+          include: [
+            {
+              model: UserModel,
+              attributes: ["nombre", "email"],
+            },
+          ],
+        },
+        {
+          model: InscripcionModel,
+          as: "inscripciones",
+          include: [
+            {
+              model: EstudianteModel,
+              as: "estudiante",
+              include: [
+                {
+                  model: UserModel,
+                  attributes: ["nombre", "email"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
       order: [["fecha", "DESC"]],
     });
 
-    return res.json({ tutorias });
+    // Agregar conteo de inscritos
+    const tutoriasConInfo = tutorias.map((t) => ({
+      ...t.toJSON(),
+      estudiantesInscritos: t.inscripciones?.length || 0,
+      cuposDisponibles: t.cupoMaximo - (t.inscripciones?.length || 0),
+    }));
+
+    return res.json({ tutorias: tutoriasConInfo });
   } catch (err) {
     console.error("Error en getAll tutorias:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -92,19 +133,54 @@ export const getAll = async (req, res) => {
 
 /**
  * GET /api/tutorias/:id
- * Obtener una específica
+ * Obtener tutoría con todos sus inscritos
  */
 export const getById = async (req, res) => {
   try {
     const { id } = req.params;
 
-    const tutoria = await TutoriaModel.findByPk(id);
+    const tutoria = await TutoriaModel.findByPk(id, {
+      include: [
+        {
+          model: TutorModel,
+          as: "tutor",
+          include: [
+            {
+              model: UserModel,
+              attributes: ["nombre", "email", "id"],
+            },
+          ],
+        },
+        {
+          model: InscripcionModel,
+          as: "inscripciones",
+          include: [
+            {
+              model: EstudianteModel,
+              as: "estudiante",
+              include: [
+                {
+                  model: UserModel,
+                  attributes: ["nombre", "email"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    });
 
     if (!tutoria) {
       return res.status(404).json({ message: "Tutoría no encontrada" });
     }
 
-    return res.json({ tutoria });
+    const tutoriaInfo = {
+      ...tutoria.toJSON(),
+      estudiantesInscritos: tutoria.inscripciones?.length || 0,
+      cuposDisponibles: tutoria.cupoMaximo - (tutoria.inscripciones?.length || 0),
+    };
+
+    return res.json({ tutoria: tutoriaInfo });
   } catch (err) {
     console.error("Error en getById tutoria:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -114,7 +190,6 @@ export const getById = async (req, res) => {
 /**
  * PUT /api/tutorias/:id
  * Actualizar tutoría
- * (Actualización parcial: solo cambia lo que envíes)
  */
 export const update = async (req, res) => {
   try {
@@ -129,11 +204,12 @@ export const update = async (req, res) => {
       fecha,
       materia,
       tema,
-      observaciones,
+      descripcion,
       duracion,
+      cupoMaximo,
+      modalidad,
+      ubicacion,
       estado,
-      estudianteId,
-      tutorId,
     } = req.body;
 
     if (fecha !== undefined) {
@@ -146,13 +222,12 @@ export const update = async (req, res) => {
 
     if (materia !== undefined) tutoria.materia = materia;
     if (tema !== undefined) tutoria.tema = tema;
-    if (observaciones !== undefined) tutoria.observaciones = observaciones;
+    if (descripcion !== undefined) tutoria.descripcion = descripcion;
     if (duracion !== undefined) tutoria.duracion = duracion;
+    if (cupoMaximo !== undefined) tutoria.cupoMaximo = cupoMaximo;
+    if (modalidad !== undefined) tutoria.modalidad = modalidad;
+    if (ubicacion !== undefined) tutoria.ubicacion = ubicacion;
     if (estado !== undefined) tutoria.estado = estado;
-
-    // si quieres permitir cambiar relaciones (opcional)
-    if (estudianteId !== undefined) tutoria.estudianteId = estudianteId;
-    if (tutorId !== undefined) tutoria.tutorId = tutorId;
 
     await tutoria.save();
 
@@ -165,7 +240,7 @@ export const update = async (req, res) => {
 
 /**
  * DELETE /api/tutorias/:id
- * Eliminar tutoría
+ * Eliminar tutoría (y todas sus inscripciones en cascada)
  */
 export const remove = async (req, res) => {
   try {
@@ -185,26 +260,6 @@ export const remove = async (req, res) => {
 };
 
 /**
- * GET /api/tutorias/estudiante/:estudianteId
- * Tutorías de un estudiante
- */
-export const getByEstudiante = async (req, res) => {
-  try {
-    const { estudianteId } = req.params;
-
-    const tutorias = await TutoriaModel.findAll({
-      where: { estudianteId },
-      order: [["fecha", "DESC"]],
-    });
-
-    return res.json({ tutorias });
-  } catch (err) {
-    console.error("Error en getByEstudiante:", err);
-    return res.status(500).json({ message: "Error interno" });
-  }
-};
-
-/**
  * GET /api/tutorias/tutor/:tutorId
  * Tutorías de un tutor
  */
@@ -214,10 +269,34 @@ export const getByTutor = async (req, res) => {
 
     const tutorias = await TutoriaModel.findAll({
       where: { tutorId },
+      include: [
+        {
+          model: InscripcionModel,
+          as: "inscripciones",
+          include: [
+            {
+              model: EstudianteModel,
+              as: "estudiante",
+              include: [
+                {
+                  model: UserModel,
+                  attributes: ["nombre", "email"],
+                },
+              ],
+            },
+          ],
+        },
+      ],
       order: [["fecha", "DESC"]],
     });
 
-    return res.json({ tutorias });
+    const tutoriasConInfo = tutorias.map((t) => ({
+      ...t.toJSON(),
+      estudiantesInscritos: t.inscripciones?.length || 0,
+      cuposDisponibles: t.cupoMaximo - (t.inscripciones?.length || 0),
+    }));
+
+    return res.json({ tutorias: tutoriasConInfo });
   } catch (err) {
     console.error("Error en getByTutor:", err);
     return res.status(500).json({ message: "Error interno" });
@@ -225,36 +304,52 @@ export const getByTutor = async (req, res) => {
 };
 
 /**
- * GET /api/tutorias/rango?desde=YYYY-MM-DD&hasta=YYYY-MM-DD
- * Filtrar por rango de fechas
+ * GET /api/tutorias/disponibles
+ * Listar tutorías disponibles (programadas y con cupo)
  */
-export const getByDateRange = async (req, res) => {
+export const getDisponibles = async (req, res) => {
   try {
-    const { desde, hasta } = req.query;
-
-    if (!desde || !hasta) {
-      return res.status(400).json({ message: "Debe enviar desde y hasta" });
-    }
-
-    const d1 = new Date(desde);
-    const d2 = new Date(hasta);
-
-    if (Number.isNaN(d1.getTime()) || Number.isNaN(d2.getTime())) {
-      return res.status(400).json({ message: "Rango de fechas inválido" });
-    }
-
     const tutorias = await TutoriaModel.findAll({
       where: {
+        estado: "programada",
         fecha: {
-          [Op.between]: [d1, d2],
+          [Op.gte]: new Date(), // Solo futuras
         },
       },
-      order: [["fecha", "DESC"]],
+      include: [
+        {
+          model: TutorModel,
+          as: "tutor",
+          include: [
+            {
+              model: UserModel,
+              attributes: ["nombre", "email"],
+            },
+          ],
+        },
+        {
+          model: InscripcionModel,
+          as: "inscripciones",
+        },
+      ],
+      order: [["fecha", "ASC"]],
     });
 
-    return res.json({ tutorias });
+    // Filtrar solo las que tienen cupo disponible
+    const tutoriasDisponibles = tutorias
+      .filter((t) => {
+        const inscritos = t.inscripciones?.length || 0;
+        return inscritos < t.cupoMaximo;
+      })
+      .map((t) => ({
+        ...t.toJSON(),
+        estudiantesInscritos: t.inscripciones?.length || 0,
+        cuposDisponibles: t.cupoMaximo - (t.inscripciones?.length || 0),
+      }));
+
+    return res.json({ tutorias: tutoriasDisponibles });
   } catch (err) {
-    console.error("Error en getByDateRange:", err);
+    console.error("Error en getDisponibles:", err);
     return res.status(500).json({ message: "Error interno" });
   }
 };

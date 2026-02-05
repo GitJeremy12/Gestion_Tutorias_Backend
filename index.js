@@ -8,11 +8,14 @@ import './models/Estudiante.js';
 import './models/Tutor.js';
 import './models/Tutoria.js';
 import './models/Agendamiento.js';
+import './models/Inscripcion.js';
 import { definirRelaciones } from "./models/Relaciones.js";
 import authRoutes from './routes/auth.routes.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import agendamientosRoutes from "./routes/agendamientos.routes.js";
 import tutoriasRoutes from "./routes/tutorias.routes.js";
+import inscripcionRoutes from "./routes/inscripcion.routes.js";
+
 
 const app = express();
 app.use(express.json());
@@ -22,6 +25,7 @@ app.use(cors());
 app.use('/api', authRoutes);
 app.use("/api", agendamientosRoutes);
 app.use("/api", tutoriasRoutes);
+app.use("/api", inscripcionRoutes);
 
 app.use(errorHandler);
 
