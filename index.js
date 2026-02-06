@@ -13,7 +13,7 @@ import authRoutes from './routes/auth.routes.js';
 import { errorHandler } from './middlewares/error.middleware.js';
 import tutoriasRoutes from "./routes/tutorias.routes.js";
 import inscripcionRoutes from "./routes/inscripcion.routes.js";
-
+import reportesRoutes from "./routes/reportes.routes.js";
 
 const app = express();
 app.use(express.json());
@@ -23,6 +23,7 @@ app.use(cors());
 app.use('/api', authRoutes);
 app.use("/api", tutoriasRoutes);
 app.use("/api", inscripcionRoutes);
+app.use("/api", reportesRoutes);
 
 app.use(errorHandler);
 
