@@ -25,16 +25,4 @@ router.delete("/tutorias/:id", verifyToken, authorizeRoles("tutor", "admin"), re
 // Tutorías de un tutor
 //router.get("/tutorias/tutor/:tutorId", verifyToken, getByTutor);
 
-// Listar todas (con filtros)
-//router.get("/tutorias", verifyToken, getAll);
-
-// Obtener una por id
-//router.get("/tutorias/:id", verifyToken, getById);
-
-// Actualizar por id
-//router.put("/tutorias/:id", verifyToken, update);
-
-// Eliminar por id
-//router.delete("/tutorias/:id", verifyToken, remove);
-
 export default router;

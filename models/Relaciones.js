@@ -3,7 +3,7 @@ import { EstudianteModel } from "./Estudiante.js";
 import { TutorModel } from "./Tutor.js";
 import { TutoriaModel } from "./Tutoria.js";
 import { InscripcionModel } from "./Inscripcion.js";
-import { AgendamientoModel } from "./Agendamiento.js";
+
 
 export const definirRelaciones = () => {
   EstudianteModel.belongsTo(UserModel, { foreignKey: "userId" });
@@ -53,8 +53,4 @@ export const definirRelaciones = () => {
     as: "inscripciones" 
   });
 
-  EstudianteModel.hasMany(AgendamientoModel, { foreignKey: "estudianteId" });
-  TutorModel.hasMany(AgendamientoModel, { foreignKey: "tutorId" });
-  AgendamientoModel.belongsTo(EstudianteModel, { foreignKey: "estudianteId" });
-  AgendamientoModel.belongsTo(TutorModel, { foreignKey: "tutorId" });
 };
