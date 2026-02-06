@@ -324,6 +324,68 @@ export const update = async (req, res) => {
  * DELETE /api/tutorias/:id
  * Eliminar tutoría (y todas sus inscripciones en cascada)
  */
+export const remove = async (req, res) => {
+  const t = await sequelize.transaction();
+  try {
+    const { id } = req.params;
+    const rol = req.user?.rol;
+    const userId = req.user?.id;
+
+    if (!rol || !userId) {
+      await t.rollback();
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+
+    const tutoria = await TutoriaModel.findByPk(id, { transaction: t });
+    if (!tutoria) {
+      await t.rollback();
+      return res.status(404).json({ message: "Tutoría no encontrada" });
+    }
+
+    // ✅ Si es tutor, solo puede eliminar sus tutorías
+    if (rol === "tutor") {
+      const tutor = await TutorModel.findOne({ where: { userId }, transaction: t });
+      if (!tutor) {
+        await t.rollback();
+        return res.status(403).json({ message: "Solo tutores pueden eliminar tutorías" });
+      }
+      if (tutoria.tutorId !== tutor.id) {
+        await t.rollback();
+        return res.status(403).json({ message: "No puedes eliminar tutorías de otro tutor" });
+      }
+    }
+
+    // 🚫 No permitir borrar si ya está en curso o completada
+    if (["en_curso", "completada"].includes(tutoria.estado)) {
+      await t.rollback();
+      return res.status(400).json({
+        message: `No se puede eliminar una tutoría en estado '${tutoria.estado}'. Cancélala si es necesario.`,
+      });
+    }
+
+    // 🚫 No permitir borrar si ya tiene inscritos
+    const inscritos = await InscripcionModel.count({
+      where: { tutoriaId: tutoria.id },
+      transaction: t,
+    });
+
+    if (inscritos > 0) {
+      await t.rollback();
+      return res.status(400).json({
+        message: `No se puede eliminar: la tutoría tiene ${inscritos} inscrito(s). Cancélala en lugar de eliminar.`,
+      });
+    }
+
+    await tutoria.destroy({ transaction: t });
+    await t.commit();
+
+    return res.json({ message: "Tutoría eliminada" });
+  } catch (err) {
+    await t.rollback();
+    console.error("❌ Error en remove tutoria:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+};
 
 
 /**
