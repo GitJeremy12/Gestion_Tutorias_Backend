@@ -110,7 +110,7 @@ export const register = async (req, res) => {
           userId: user.id,
           especialidad,
           departamento,
-          disponibilidad: disponibilidad ?? null,
+          disponibilidad: disponibilidad,
         },
         { transaction: t }
       );
