@@ -3,7 +3,16 @@ import { TutoriaModel } from "../models/Tutoria.js";
 import { EstudianteModel } from "../models/Estudiante.js";
 import { TutorModel } from "../models/Tutor.js";
 import { UserModel } from "../models/User.js";
+import { sendAgendamientoConfirmacion } from "../services/emailServices.js";
 
+/**
+ * POST /api/inscripciones
+ * Inscribir estudiante a una tutoría
+ */
+/**
+ * POST /api/inscripciones
+ * Inscribir estudiante a una tutoría
+ */
 /**
  * POST /api/inscripciones
  * Inscribir estudiante a una tutoría
@@ -16,7 +25,6 @@ export const inscribir = async (req, res) => {
       return res.status(400).json({ message: "Datos incompletos" });
     }
 
-    // Verificar que la tutoría existe y está disponible
     const tutoria = await TutoriaModel.findByPk(tutoriaId, {
       include: [
         {
@@ -36,19 +44,27 @@ export const inscribir = async (req, res) => {
       });
     }
 
-    // Verificar cupo disponible
     const inscritosActuales = tutoria.inscripciones?.length || 0;
     if (inscritosActuales >= tutoria.cupoMaximo) {
       return res.status(400).json({ message: "No hay cupos disponibles" });
     }
 
-    // Verificar que el estudiante existe
     const estudiante = await EstudianteModel.findByPk(estudianteId);
     if (!estudiante) {
       return res.status(404).json({ message: "Estudiante no encontrado" });
     }
 
-    // Verificar que no esté ya inscrito
+    const usuario = await UserModel.findByPk(estudiante.userId);
+
+    const tutor = await TutorModel.findByPk(tutoria.tutorId, {
+      include: [
+        {
+          model: UserModel,
+          attributes: ["nombre", "email"],
+        },
+      ],
+    });
+
     const yaInscrito = await InscripcionModel.findOne({
       where: { tutoriaId, estudianteId },
     });
@@ -59,12 +75,30 @@ export const inscribir = async (req, res) => {
       });
     }
 
-    // Crear inscripción
     const inscripcion = await InscripcionModel.create({
       tutoriaId,
       estudianteId,
       asistencia: "pendiente",
     });
+
+    try {
+      await sendAgendamientoConfirmacion({
+        to: usuario.email,
+        nombre: usuario.nombre,
+        materia: tutoria.materia,
+        tema: tutoria.tema,
+        descripcion: tutoria.descripcion,
+        fecha: tutoria.fecha,
+        duracion: tutoria.duracion,
+        modalidad: tutoria.modalidad,
+        ubicacion: tutoria.ubicacion,
+        tutorNombre: tutor?.User?.nombre || tutor?.user?.nombre,
+        cuposDisponibles: tutoria.cupoMaximo - (inscritosActuales + 1),
+        cupoMaximo: tutoria.cupoMaximo,
+      });
+    } catch (emailError) {
+      console.error("Error al enviar email de confirmación:", emailError);
+    }
 
     return res.status(201).json({ 
       message: "Inscripción exitosa", 
@@ -82,7 +116,6 @@ export const inscribir = async (req, res) => {
     return res.status(500).json({ message: "Error interno" });
   }
 };
-
 /**
  * GET /api/inscripciones/tutoria/:tutoriaId
  * Ver todos los inscritos de una tutoría
