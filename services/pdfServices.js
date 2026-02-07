@@ -1,236 +1,318 @@
 import PDFDocument from "pdfkit";
+import path from "path";
+import fs from "fs";
+import { fileURLToPath } from "url";
 
-export const buildPdfBuffer = (writeFn) =>
-  new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ margin: 50, size: "A4" });
-    const chunks = [];
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
-    doc.on("data", (c) => chunks.push(c));
-    doc.on("end", () => resolve(Buffer.concat(chunks)));
-    doc.on("error", reject);
+// ✅ carpeta image en la raíz
+const HEADER_IMG = path.join(__dirname, "..", "image", "espam-header.png");
 
-    writeFn(doc);
-    doc.end();
-  });
-
-// ---------- Helpers de diseño ----------
-const pageBottom = (doc) => doc.page.height - doc.page.margins.bottom;
-const pageRight = (doc) => doc.page.width - doc.page.margins.right;
-
-const ensureSpace = (doc, neededHeight) => {
-  if (doc.y + neededHeight > pageBottom(doc)) doc.addPage();
+const fmtDateTime = (v) => {
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleString();
 };
 
-const drawTitle = (doc, title, subtitle) => {
-  doc.fontSize(18).text(title, { underline: true });
-  if (subtitle) {
-    doc.moveDown(0.2);
-    doc.fontSize(10).fillColor("gray").text(subtitle);
-    doc.fillColor("black");
+const avg = (nums) => {
+  const arr = (nums || []).filter((n) => typeof n === "number");
+  if (!arr.length) return null;
+  return arr.reduce((a, b) => a + b, 0) / arr.length;
+};
+
+const drawHeaderImage = (doc) => {
+  const left = doc.page.margins.left;
+  const right = doc.page.margins.right;
+
+  if (fs.existsSync(HEADER_IMG)) {
+    doc.image(HEADER_IMG, left, 18, {
+      width: doc.page.width - left - right,
+    });
   }
-  doc.moveDown(0.8);
+
+  const yLine = 95;
+  doc
+    .moveTo(left, yLine)
+    .lineTo(doc.page.width - right, yLine)
+    .lineWidth(1)
+    .strokeColor("#cfcfcf")
+    .stroke();
+
+  doc.y = yLine + 15;
 };
 
-const drawCardsRow = (doc, cards) => {
-  const gap = 10;
-  const totalWidth = pageRight(doc) - doc.page.margins.left;
-  const cardW = (totalWidth - gap * (cards.length - 1)) / cards.length;
-  const cardH = 52;
+const ensureSpace = (doc, minBottom = 90) => {
+  if (doc.y > doc.page.height - minBottom) {
+    doc.addPage(); // ✅ pageAdded dibuja el header
+    doc.moveDown(0.5);
+  }
+};
 
-  ensureSpace(doc, cardH + 10);
+const drawCards = (doc, cards) => {
+  const left = doc.page.margins.left;
+  const right = doc.page.margins.right;
+
+  const gap = 12;
+  const cardW = (doc.page.width - left - right - gap * 2) / 3;
+  const cardH = 55;
 
   const y = doc.y;
-  let x = doc.page.margins.left;
 
-  for (const c of cards) {
-    doc.roundedRect(x, y, cardW, cardH, 8).stroke();
+  cards.forEach((c, idx) => {
+    const x = left + idx * (cardW + gap);
 
-    doc.fontSize(10).fillColor("gray").text(c.label, x + 10, y + 10, { width: cardW - 20 });
-    doc.fillColor("black").fontSize(16).text(String(c.value ?? "-"), x + 10, y + 26, { width: cardW - 20 });
+    doc
+      .roundedRect(x, y, cardW, cardH, 10)
+      .lineWidth(1)
+      .strokeColor("#000")
+      .stroke();
 
-    x += cardW + gap;
-  }
+    doc.fontSize(11).fillColor("#666").text(c.title, x + 12, y + 10, { width: cardW - 24 });
+    doc.fontSize(18).fillColor("#000").text(String(c.value), x + 12, y + 28, { width: cardW - 24 });
+  });
 
-  doc.y = y + cardH + 14;
+  doc.y = y + cardH + 18;
 };
 
-const drawTable = (doc, { columns, rows, rowHeight = 18 }) => {
-  const x0 = doc.page.margins.left;
-  const tableWidth = pageRight(doc) - x0;
+const drawTable = (doc, { headers, widths, rows }) => {
+  const left = doc.page.margins.left;
+  const right = doc.page.margins.right;
+  const tableWidth = doc.page.width - left - right;
 
-  const fixed = columns.reduce((acc, c) => acc + (c.width || 0), 0);
-  const missing = columns.filter((c) => !c.width).length;
-  const autoW = missing > 0 ? (tableWidth - fixed) / missing : 0;
+  const headerH = 22;
+  const rowH = 20;
 
-  const cols = columns.map((c) => ({ ...c, width: c.width || autoW }));
+  // ✅ Nuevo cambio: widths SIEMPRE ajustados al ancho real disponible
+  const sum = widths.reduce((a, b) => a + b, 0) || 1;
+  let w = widths.map((v) => (v / sum) * tableWidth);
 
-  const drawHeader = () => {
-    ensureSpace(doc, rowHeight + 6);
+  // Ajuste final para que cierre EXACTO (por decimales)
+  const wSum = w.reduce((a, b) => a + b, 0);
+  w[w.length - 1] += tableWidth - wSum;
 
-    const y = doc.y;
-    doc.save();
-    doc.rect(x0, y, tableWidth, rowHeight).fill("#03bcd4");
-    doc.restore();
+  // helper: recorta texto si es muy largo (sin saltar de línea)
+  const fit = (text, maxWidth) => {
+    const s = String(text ?? "");
+    if (!s) return "";
+    if (doc.widthOfString(s) <= maxWidth) return s;
 
-    let x = x0;
-    doc.fontSize(10).fillColor("black");
-    for (const c of cols) {
-      doc.text(c.header, x + 4, y + 5, { width: c.width - 8, align: c.align || "left" });
-      x += c.width;
+    let out = s;
+    while (out.length > 0 && doc.widthOfString(out ) > maxWidth) {
+      out = out.slice(0, -1);
     }
-
-    doc.y = y + rowHeight;
+    return out.length ? out: "";
   };
 
-  const drawRow = (row) => {
-    ensureSpace(doc, rowHeight + 4);
+  // ===== HEADER =====
+  const yHeader = doc.y;
 
-    const y = doc.y;
-    let x = x0;
+  // fondo header
+  doc.rect(left, yHeader, tableWidth, headerH).fill("#f2f2f2");
+  doc.fillColor("#000");
 
-    doc.save();
-    doc.strokeColor("#dddddd");
-    doc.moveTo(x0, y).lineTo(x0 + tableWidth, y).stroke();
-    doc.restore();
-
-    doc.fontSize(9);
-    for (const c of cols) {
-      const val = row[c.key];
-      const text = val === null || val === undefined ? "" : String(val);
-      doc.text(text, x + 4, y + 5, { width: c.width - 8, align: c.align || "left" });
-      x += c.width;
-    }
-
-    doc.y = y + rowHeight;
-  };
-
-  drawHeader();
-  for (const r of rows) drawRow(r);
-
+  // ✅ Nuevo cambio: clip del header para que NO se salga
   doc.save();
-  doc.strokeColor("#050000");
-  doc.moveTo(x0, doc.y).lineTo(x0 + tableWidth, doc.y).stroke();
+  doc.rect(left, yHeader, tableWidth, headerH).clip();
+
+  let x = left;
+  headers.forEach((h, i) => {
+    const cellW = w[i];
+    doc.fontSize(10).text(fit(h, cellW - 12), x + 6, yHeader + 6, {
+      width: cellW - 12,
+      lineBreak: false,
+    });
+    x += cellW;
+  });
+
   doc.restore();
 
-  doc.moveDown(0.8);
+  doc.y = yHeader + headerH;
+
+  // línea debajo del header
+  doc
+    .moveTo(left, doc.y)
+    .lineTo(doc.page.width - right, doc.y)
+    .strokeColor("#d9d9d9")
+    .stroke();
+
+  // ===== ROWS =====
+  for (const r of rows) {
+    ensureSpace(doc, 80);
+
+    const yRow = doc.y;
+
+    // ✅ Nuevo cambio: clip de la fila para que NO se salga nada
+    doc.save();
+    doc.rect(left, yRow, tableWidth, rowH).clip();
+
+    let cx = left;
+    r.forEach((cell, i) => {
+      const cellW = w[i];
+      const txt = fit(cell, cellW - 12);
+
+      doc.fontSize(10).fillColor("#000").text(txt, cx + 6, yRow + 5, {
+        width: cellW - 12,
+        lineBreak: false,
+      });
+
+      cx += cellW;
+    });
+
+    doc.restore();
+
+    doc.y = yRow + rowH;
+
+    // línea de separación
+    doc
+      .moveTo(left, doc.y)
+      .lineTo(doc.page.width - right, doc.y)
+      .strokeColor("#eeeeee")
+      .stroke();
+  }
+
+  doc.moveDown(0.6);
 };
 
-export const renderReportePdf = (doc, { tipo, data, filtros }) => {
-  const now = new Date().toLocaleString();
-  drawTitle(doc, "Reporte - Gestión de Tutorías", `Tipo: ${tipo} | Generado: ${now}`);
 
-  if (filtros && Object.keys(filtros).length) {
-    doc.fontSize(10).fillColor("gray").text(`Filtros: ${JSON.stringify(filtros)}`);
-    doc.fillColor("black");
-    doc.moveDown(0.6);
+export const buildPdfBuffer = (renderFn) => {
+  return new Promise((resolve, reject) => {
+    try {
+      const doc = new PDFDocument({ size: "A4", margin: 40 });
+
+      // ✅ header en todas las páginas
+      doc.on("pageAdded", () => drawHeaderImage(doc));
+
+      const chunks = [];
+      doc.on("data", (c) => chunks.push(c));
+      doc.on("end", () => resolve(Buffer.concat(chunks)));
+      doc.on("error", reject);
+
+      renderFn(doc);
+      doc.end();
+    } catch (err) {
+      reject(err);
+    }
+  });
+};
+
+// ✅ FORMATO 2 + LOGO (sin filtros) + NOMBRE
+export const renderReportePdf = (doc, { tipo, data, meta }) => {
+  // header en primera página
+  drawHeaderImage(doc);
+
+  // título
+  doc.fontSize(22).fillColor("#000").text("Reporte - Gestión de Tutorías", { underline: true });
+  doc.moveDown(0.2);
+
+  doc.fontSize(11).fillColor("#666").text(`Tipo: ${tipo} | Generado: ${new Date().toLocaleString()}`);
+  doc.moveDown(0.6);
+
+  // ✅ nombre del “dueño” del reporte (estudiante/tutor/admin)
+  if (meta?.label && meta?.name) {
+    doc.fontSize(12).fillColor("#000").text(`${meta.label}:  ${meta.name}`);
+    doc.moveDown(0.8);
   }
 
-  // ---- Tutor ----
-  if (tipo === "tutor") {
-    const nombre = data.tutor?.User?.nombre || "";
-    const email = data.tutor?.User?.email || "";
-    doc.fontSize(12).text(`Tutor: ${nombre}  |  ${email}`);
-    doc.moveDown(0.6);
-
-    drawCardsRow(doc, [
-      { label: "Tutorías", value: data.resumen?.totalTutorias ?? 0 },
-      { label: "Inscritos", value: data.resumen?.totalInscritos ?? 0 },
-      { label: "Prom. calificación", value: data.resumen?.promedioCalificacion ? data.resumen.promedioCalificacion.toFixed(2) : "-" },
-    ]);
-
-    const rows = (data.tutorias || []).map((t) => ({
-      fecha: t.fecha ? new Date(t.fecha).toLocaleString() : "",
-      materia: t.materia || "",
-      tema: t.tema || "",
-      estado: t.estado || "",
-      inscritos: t.inscritos ?? 0,
-      prom: t.promedioCalificacion ? t.promedioCalificacion.toFixed(2) : "",
-    }));
-
-    drawTable(doc, {
-      columns: [
-        { header: "Fecha", key: "fecha", width: 140 },
-        { header: "Materia", key: "materia", width: 90 },
-        { header: "Tema", key: "tema" },
-        { header: "Estado", key: "estado", width: 70 },
-        { header: "Inscr.", key: "inscritos", width: 45, align: "right" },
-        { header: "Prom.", key: "prom", width: 45, align: "right" },
-      ],
-      rows,
-    });
-
-    return;
-  }
-
-  // ---- Estudiante ----
+  // cards + tabla según tipo
   if (tipo === "estudiante") {
-    const nombre = data.estudiante?.User?.nombre || "";
-    const email = data.estudiante?.User?.email || "";
-    doc.fontSize(12).text(`Estudiante: ${nombre}  |  ${email}`);
-    doc.moveDown(0.6);
+    const resumen = data?.resumen || {};
+    const asistio = resumen?.asistencia?.asistio ?? 0;
+    const prom = resumen?.promedioCalificacion;
 
-    drawCardsRow(doc, [
-      { label: "Inscripciones", value: data.resumen?.totalInscripciones ?? 0 },
-      { label: "Asistió", value: data.resumen?.asistencia?.asistio ?? 0 },
-      { label: "Prom. calificación", value: data.resumen?.promedioCalificacion ? data.resumen.promedioCalificacion.toFixed(2) : "-" },
+    drawCards(doc, [
+      { title: "Inscripciones", value: resumen.totalInscripciones ?? 0 },
+      { title: "Asistió", value: asistio },
+      { title: "Prom. calificación", value: prom ? prom.toFixed(2) : "-" },
     ]);
 
-    const rows = (data.inscripciones || []).map((i) => ({
-      fecha: i.tutoria?.fecha ? new Date(i.tutoria.fecha).toLocaleString() : "",
-      materia: i.tutoria?.materia || "",
-      tema: i.tutoria?.tema || "",
-      estado: i.tutoria?.estado || "",
-      asistencia: i.asistencia || "",
-      calif: i.calificacion ?? "",
-    }));
+    const rows = (data?.inscripciones || []).map((i) => [
+      fmtDateTime(i?.tutoria?.fecha),
+      i?.tutoria?.materia ?? "",
+      i?.tutoria?.tema ?? "",
+      i?.tutoria?.estado ?? "",
+      i?.asistencia ?? "",
+      i?.calificacion ?? "",
+    ]);
 
     drawTable(doc, {
-      columns: [
-        { header: "Fecha", key: "fecha", width: 140 },
-        { header: "Materia", key: "materia", width: 90 },
-        { header: "Tema", key: "tema" },
-        { header: "Estado", key: "estado", width: 70 },
-        { header: "Asistencia", key: "asistencia", width: 70 },
-        { header: "Calif.", key: "calif", width: 45, align: "right" },
-      ],
+      headers: ["Fecha", "Materia", "Tema", "Estado", "Asistencia", "Calif."],
+      widths: [150, 95, 150, 70, 90, 50],
       rows,
     });
 
     return;
   }
 
-  // ---- Semanal ----
-  if (tipo === "semanal") {
-    const from = data.rango?.from ? new Date(data.rango.from).toLocaleDateString() : "";
-    const to = data.rango?.to ? new Date(data.rango.to).toLocaleDateString() : "";
-    doc.fontSize(12).text(`Rango: ${from}  -  ${to}`);
-    doc.moveDown(0.6);
+  if (tipo === "tutor") {
+    const resumen = data?.resumen || {};
+    const prom = resumen?.promedioCalificacion;
 
-    drawCardsRow(doc, [
-      { label: "Tutorías", value: data.resumen?.totalTutorias ?? 0 },
-      { label: "Inscritos", value: data.resumen?.totalInscritos ?? 0 },
-      { label: "Prom. calificación", value: data.resumen?.promedioCalificacion ? data.resumen.promedioCalificacion.toFixed(2) : "-" },
+    drawCards(doc, [
+      { title: "Tutorías", value: resumen.totalTutorias ?? 0 },
+      { title: "Inscritos", value: resumen.totalInscritos ?? 0 },
+      { title: "Prom. calificación", value: prom ? prom.toFixed(2) : "-" },
     ]);
 
-    const rows = (data.tutorias || []).map((t) => ({
-      fecha: t.fecha ? new Date(t.fecha).toLocaleString() : "",
-      tutor: t.tutor?.User?.nombre || "",
-      materia: t.materia || "",
-      tema: t.tema || "",
-      estado: t.estado || "",
-      inscritos: t.inscripciones?.length || 0,
-    }));
+    const rows = (data?.tutorias || []).map((t) => [
+      fmtDateTime(t.fecha),
+      t.materia ?? "",
+      t.tema ?? "",
+      t.estado ?? "",
+      t.inscritos ?? 0,
+      t.promedioCalificacion ? t.promedioCalificacion.toFixed(2) : "-",
+    ]);
 
     drawTable(doc, {
-      columns: [
-        { header: "Fecha", key: "fecha", width: 140 },
-        { header: "Tutor", key: "tutor", width: 90 },
-        { header: "Materia", key: "materia", width: 80 },
-        { header: "Tema", key: "tema" },
-        { header: "Estado", key: "estado", width: 70 },
-        { header: "Inscr.", key: "inscritos", width: 45, align: "right" },
-      ],
+      headers: ["Fecha", "Materia", "Tema", "Estado", "Inscr.", "Prom."],
+      widths: [150, 95, 170, 80, 55, 40],
       rows,
     });
+
+    return;
   }
+
+  // tipo semanal/admin
+  if (tipo === "semanal") {
+    const resumen = data?.resumen || {};
+    const prom = resumen?.promedioCalificacion;
+
+    drawCards(doc, [
+      { title: "Tutorías", value: resumen.totalTutorias ?? 0 },
+      { title: "Inscritos", value: resumen.totalInscritos ?? 0 },
+      { title: "Prom. calificación", value: prom ? prom.toFixed(2) : "-" },
+    ]);
+
+    const rows = (data?.tutorias || []).map((t) => {
+      const ins = t.inscripciones || [];
+      const califs = ins.map((i) => i.calificacion ?? null).filter((x) => x !== null);
+      const promRow = avg(califs);
+
+      const tutorNombre =
+        t?.tutor?.UserModel?.nombre ||
+        t?.tutor?.User?.nombre ||
+        t?.tutor?.user?.nombre ||
+        "";
+
+      return [
+        fmtDateTime(t.fecha),
+        tutorNombre,
+        t.materia ?? "",
+        t.tema ?? "",
+        t.estado ?? "",
+        ins.length,
+      ];
+    });
+
+    drawTable(doc, {
+      headers: ["Fecha", "Tutor", "Materia", "Tema", "Estado", "Inscripción"],
+      widths: [145, 95, 85, 150, 85, 80],
+      rows,
+    });
+
+    return;
+  }
+
+  // fallback
+  doc.fontSize(11).fillColor("#000").text("Tipo de reporte no soportado.");
 };

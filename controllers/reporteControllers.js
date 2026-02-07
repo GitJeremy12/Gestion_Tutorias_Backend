@@ -360,10 +360,29 @@ export const exportPDF = async (req, res) => {
 
     if (!data) return res.status(400).json({ message: "Tipo de reporte inválido" });
 
-    // ✅ Nuevo cambio: ahora generamos un PDF "bonito" (cards + tabla) usando renderReportePdf
-    const filtros = { tipo, id, from, to }; // ✅ Nuevo cambio
+    // ✅ Nuevo cambio: meta con nombre (Estudiante / Tutor / Administrador)
+    let meta = null;
+
+    if (tipo === "estudiante") {
+      // data.estudiante es el perfil, incluye UserModel por tu builder
+      const nombreEstudiante = data?.estudiante?.user?.nombre || data?.estudiante?.UserModel?.nombre || data?.estudiante?.User?.nombre;
+      meta = { label: "Estudiante", name: nombreEstudiante || "" };
+    }
+
+    if (tipo === "tutor") {
+      const nombreTutor = data?.tutor?.user?.nombre || data?.tutor?.UserModel?.nombre || data?.tutor?.User?.nombre;
+      meta = { label: "Tutor", name: nombreTutor || "" };
+    }
+
+    if (tipo === "semanal") {
+      // admin es el usuario autenticado
+      const adminUser = await UserModel.findByPk(userId, { attributes: ["nombre"] });
+      meta = { label: "Administrador", name: adminUser?.nombre || "" };
+    }
+
+    // ✅ Nuevo cambio: quitamos filtros del PDF (ya no se envían)
     const pdf = await buildPdfBuffer((doc) => {
-      renderReportePdf(doc, { tipo, data, filtros }); // ✅ Nuevo cambio
+      renderReportePdf(doc, { tipo, data, meta }); // ✅ Nuevo cambio: pasa meta para imprimir nombre
     });
 
     res.setHeader("Content-Type", "application/pdf");
@@ -374,3 +393,4 @@ export const exportPDF = async (req, res) => {
     return res.status(500).json({ message: "Error interno" });
   }
 };
+
