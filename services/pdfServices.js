@@ -36,7 +36,7 @@ const drawHeaderImage = (doc) => {
     .moveTo(left, yLine)
     .lineTo(doc.page.width - right, yLine)
     .lineWidth(1)
-    .strokeColor("#cfcfcf")
+    .strokeColor("#006b04")
     .stroke();
 
   doc.y = yLine + 15;
@@ -79,6 +79,7 @@ const drawTable = (doc, { headers, widths, rows }) => {
   const left = doc.page.margins.left;
   const right = doc.page.margins.right;
   const tableWidth = doc.page.width - left - right;
+  
 
   const headerH = 22;
   const rowH = 20;
@@ -101,14 +102,14 @@ const drawTable = (doc, { headers, widths, rows }) => {
     while (out.length > 0 && doc.widthOfString(out ) > maxWidth) {
       out = out.slice(0, -1);
     }
-    return out.length ? out: "";
+    return out.length ? out: "…";
   };
 
   // ===== HEADER =====
   const yHeader = doc.y;
 
   // fondo header
-  doc.rect(left, yHeader, tableWidth, headerH).fill("#f2f2f2");
+  doc.rect(left, yHeader, tableWidth, headerH).fill("#80a3fc");
   doc.fillColor("#000");
 
   // ✅ Nuevo cambio: clip del header para que NO se salga
@@ -133,7 +134,7 @@ const drawTable = (doc, { headers, widths, rows }) => {
   doc
     .moveTo(left, doc.y)
     .lineTo(doc.page.width - right, doc.y)
-    .strokeColor("#d9d9d9")
+    .strokeColor("#000000")
     .stroke();
 
   // ===== ROWS =====
@@ -150,10 +151,12 @@ const drawTable = (doc, { headers, widths, rows }) => {
     r.forEach((cell, i) => {
       const cellW = w[i];
       const txt = fit(cell, cellW - 12);
+      const isInscripcionCol = i === headers.length - 1;
 
       doc.fontSize(10).fillColor("#000").text(txt, cx + 6, yRow + 5, {
         width: cellW - 12,
         lineBreak: false,
+        align: isInscripcionCol ? "center" : "left",
       });
 
       cx += cellW;
@@ -167,7 +170,7 @@ const drawTable = (doc, { headers, widths, rows }) => {
     doc
       .moveTo(left, doc.y)
       .lineTo(doc.page.width - right, doc.y)
-      .strokeColor("#eeeeee")
+      .strokeColor("#000000")
       .stroke();
   }
 
@@ -201,16 +204,29 @@ export const renderReportePdf = (doc, { tipo, data, meta }) => {
   // header en primera página
   drawHeaderImage(doc);
 
-  // título
-  doc.fontSize(22).fillColor("#000").text("Reporte - Gestión de Tutorías", { underline: true });
+  // ✅ Nuevo cambio: título en negrita (más grosor)
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(30)
+    .fillColor("#000")
+    .text("Reporte - Gestión de Tutorías", { underline: true }); // ✅ Nuevo cambio
+  doc.font("Helvetica"); // ✅ Nuevo cambio: volvemos a normal para el resto
   doc.moveDown(0.2);
 
-  doc.fontSize(11).fillColor("#666").text(`Tipo: ${tipo} | Generado: ${new Date().toLocaleString()}`);
+  // ✅ Nuevo cambio: SOLO "Tipo:" y "Generado:" en negrita (los valores quedan normal)
+  doc.fontSize(11).fillColor("#000");
+  doc.font("Helvetica-Bold").text("Tipo:", { continued: true }); // ✅ Nuevo cambio
+  doc.font("Helvetica").text(` ${tipo} | `, { continued: true }); // ✅ Nuevo cambio
+  doc.font("Helvetica-Bold").text("Generado:", { continued: true }); // ✅ Nuevo cambio
+  doc.font("Helvetica").text(` ${new Date().toLocaleString()}`); // ✅ Nuevo cambio
   doc.moveDown(0.6);
 
   // ✅ nombre del “dueño” del reporte (estudiante/tutor/admin)
   if (meta?.label && meta?.name) {
-    doc.fontSize(12).fillColor("#000").text(`${meta.label}:  ${meta.name}`);
+    // ✅ Nuevo cambio: SOLO la etiqueta (Estudiante/Tutor/Administrador) en negrita
+    doc.fontSize(12).fillColor("#000");
+    doc.font("Helvetica-Bold").text(`${meta.label}:`, { continued: true }); // ✅ Nuevo cambio
+    doc.font("Helvetica").text(`  ${meta.name}`); // ✅ Nuevo cambio
     doc.moveDown(0.8);
   }
 
@@ -237,7 +253,7 @@ export const renderReportePdf = (doc, { tipo, data, meta }) => {
 
     drawTable(doc, {
       headers: ["Fecha", "Materia", "Tema", "Estado", "Asistencia", "Calif."],
-      widths: [150, 95, 150, 70, 90, 50],
+      widths: [150, 95, 150, 70, 90, 50], 
       rows,
     });
 
@@ -306,13 +322,13 @@ export const renderReportePdf = (doc, { tipo, data, meta }) => {
 
     drawTable(doc, {
       headers: ["Fecha", "Tutor", "Materia", "Tema", "Estado", "Inscripción"],
-      widths: [145, 95, 85, 150, 85, 80],
+      widths: [145, 95, 85, 150, 85, 80], 
       rows,
     });
 
     return;
   }
-
   // fallback
   doc.fontSize(11).fillColor("#000").text("Tipo de reporte no soportado.");
 };
+
