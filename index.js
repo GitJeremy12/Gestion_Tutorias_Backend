@@ -19,7 +19,6 @@ const app = express();
 app.use(express.json());
 app.use(cors());
 
-// Rutas de autenticación
 app.use('/api', authRoutes);
 app.use("/api", tutoriasRoutes);
 app.use("/api", inscripcionRoutes);
