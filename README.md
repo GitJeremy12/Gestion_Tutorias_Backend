@@ -42,7 +42,7 @@ TOKEN_KEY (Clave secreta para firmar tokens JWT)
 npm run dev inicia el servidor con nodemon
 npm start inicia en modo producción
 
-##Estructura del proyecto
+## Estructura del proyecto
 
 GESTION_TUTORIAS/
 │
