@@ -19,12 +19,27 @@ import { sendAgendamientoConfirmacion } from "../services/emailServices.js";
  */
 export const inscribir = async (req, res) => {
   try {
-    const { tutoriaId, estudianteId } = req.body;
+    const { tutoriaId } = req.body;
+    const userId = req.user?.id; // 👈 SALE DEL TOKEN
 
-    if (!tutoriaId || !estudianteId) {
+    if (!tutoriaId || !userId) {
       return res.status(400).json({ message: "Datos incompletos" });
     }
 
+    // 🔎 Buscar estudiante asociado al usuario logueado
+    const estudiante = await EstudianteModel.findOne({
+      where: { userId },
+    });
+
+    if (!estudiante) {
+      return res
+        .status(403)
+        .json({ message: "Solo estudiantes pueden inscribirse" });
+    }
+
+    const estudianteId = estudiante.id;
+
+    // 🔎 Buscar tutoría con inscripciones
     const tutoria = await TutoriaModel.findByPk(tutoriaId, {
       include: [
         {
@@ -39,49 +54,48 @@ export const inscribir = async (req, res) => {
     }
 
     if (tutoria.estado !== "programada") {
-      return res.status(400).json({ 
-        message: "La tutoría no está disponible para inscripciones" 
+      return res.status(400).json({
+        message: "La tutoría no está disponible para inscripciones",
       });
     }
 
     const inscritosActuales = tutoria.inscripciones?.length || 0;
+
     if (inscritosActuales >= tutoria.cupoMaximo) {
       return res.status(400).json({ message: "No hay cupos disponibles" });
     }
 
-    const estudiante = await EstudianteModel.findByPk(estudianteId);
-    if (!estudiante) {
-      return res.status(404).json({ message: "Estudiante no encontrado" });
-    }
-
-    const usuario = await UserModel.findByPk(estudiante.userId);
-
-    const tutor = await TutorModel.findByPk(tutoria.tutorId, {
-      include: [
-        {
-          model: UserModel,
-          attributes: ["nombre", "email"],
-        },
-      ],
-    });
-
+    // ❌ Evitar doble inscripción
     const yaInscrito = await InscripcionModel.findOne({
       where: { tutoriaId, estudianteId },
     });
 
     if (yaInscrito) {
-      return res.status(409).json({ 
-        message: "El estudiante ya está inscrito en esta tutoría" 
+      return res.status(409).json({
+        message: "El estudiante ya está inscrito en esta tutoría",
       });
     }
 
+    // ✅ Crear inscripción
     const inscripcion = await InscripcionModel.create({
       tutoriaId,
       estudianteId,
       asistencia: "pendiente",
     });
 
+    // 📧 Enviar email (NO rompe si falla)
     try {
+      const usuario = await UserModel.findByPk(userId);
+
+      const tutor = await TutorModel.findByPk(tutoria.tutorId, {
+        include: [
+          {
+            model: UserModel,
+            attributes: ["nombre", "email"],
+          },
+        ],
+      });
+
       await sendAgendamientoConfirmacion({
         to: usuario.email,
         nombre: usuario.nombre,
@@ -92,24 +106,24 @@ export const inscribir = async (req, res) => {
         duracion: tutoria.duracion,
         modalidad: tutoria.modalidad,
         ubicacion: tutoria.ubicacion,
-        tutorNombre: tutor?.User?.nombre || tutor?.user?.nombre,
+        tutorNombre: tutor?.User?.nombre || "Tutor",
         cuposDisponibles: tutoria.cupoMaximo - (inscritosActuales + 1),
         cupoMaximo: tutoria.cupoMaximo,
       });
     } catch (emailError) {
-      console.error("Error al enviar email de confirmación:", emailError);
+      console.error("⚠️ Error al enviar email:", emailError);
     }
 
-    return res.status(201).json({ 
-      message: "Inscripción exitosa", 
-      inscripcion 
+    return res.status(201).json({
+      message: "Inscripción exitosa",
+      inscripcion,
     });
   } catch (err) {
-    console.error("Error en inscribir:", err);
-    
+    console.error("❌ Error en inscribir:", err);
+
     if (err.name === "SequelizeUniqueConstraintError") {
-      return res.status(409).json({ 
-        message: "Ya existe una inscripción para este estudiante" 
+      return res.status(409).json({
+        message: "Ya existe una inscripción para este estudiante",
       });
     }
 

@@ -127,15 +127,6 @@ export const getAll = async (req, res) => {
   }
 };
 
-
-
-/**
- * export const getById
- * GET /api/tutorias/:id
- * Obtener tutoría con todos sus inscritos
- */
-
-
 /**
  * export const update
  * PUT /api/tutorias/:id
@@ -387,16 +378,31 @@ export const remove = async (req, res) => {
   }
 };
 
-
-/**
- * export const getByTutor
- * GET /api/tutorias/tutor/:tutorId
- * Tutorías de un tutor
- */
-
-
 /**
  * export const getDisponibles
  * GET /api/tutorias/disponibles
  * Listar tutorías disponibles (programadas y con cupo)
  */
+// GET /api/tutorias/disponibles
+// Devuelve tutorías abiertas para estudiantes (estado="programada" y cupo disponible)
+export const getDisponibles = async (req, res) => {
+  try {
+    const rol = req.user?.rol;
+    const userId = req.user?.id;
+
+    if (rol !== "estudiante") {
+      return res.status(403).json({ message: "Solo estudiantes pueden ver tutorías disponibles" });
+    }
+
+    const where = { estado: "programada" }; // solo tutorías activas
+    const tutorias = await TutoriaModel.findAll({
+      where,
+      order: [["fecha", "ASC"]],
+    });
+
+    return res.json({ tutorias });
+  } catch (err) {
+    console.error("❌ Error getDisponibles:", err);
+    return res.status(500).json({ message: "Error interno" });
+  }
+};
