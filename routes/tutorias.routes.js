@@ -3,7 +3,8 @@ import {
   create,
   getAll,
   update,
-  remove
+  remove,
+  getDisponibles
 } from "../controllers/tutoriaController.js";
 import { authorizeRoles } from "../middlewares/role.middleware.js";
 import { verifyToken } from "../middlewares/auth.middleware.js";
@@ -18,11 +19,7 @@ router.get("/tutorias", verifyToken, authorizeRoles("tutor", "admin"), getAll);
 router.put("/tutorias/:id", verifyToken, authorizeRoles("tutor", "admin"), update);
 //Eliminar tutoría por id
 router.delete("/tutorias/:id", verifyToken, authorizeRoles("tutor", "admin"), remove);
-
 // Listar tutorías disponibles (con cupo)
-//router.get("/tutorias/disponibles", verifyToken, getDisponibles);
-
-// Tutorías de un tutor
-//router.get("/tutorias/tutor/:tutorId", verifyToken, getByTutor);
+router.get("/tutorias/disponibles", verifyToken, authorizeRoles("estudiante"), getDisponibles);
 
 export default router;
